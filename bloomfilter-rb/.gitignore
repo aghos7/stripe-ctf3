@@ -1,0 +1,10 @@
+*.o
+*.bundle
+*.swp
+.rvmrc
+.DS_Store
+ext/Makefile
+lib/cbloomfilter.so
+tmp
+Gemfile.lock
+pkg

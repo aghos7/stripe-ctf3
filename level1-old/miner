@@ -1,0 +1,44 @@
+#!/usr/bin/env ruby
+
+#lvl1-ljojhqqw@stripe-ctf.com:level1 user-uqdczrkj
+system('./prepare.sh "lvl1-ljojhqqw@stripe-ctf.com:level1" user-uqdczrkj') #prepare.sh file later 
+Dir.chdir Dir.pwd+"/temp" #change directory to temp
+tree =`git write-tree`.delete("\n") # no need to know internals of this, its only run once
+parent=`git rev-parse HEAD`.delete("\n") # same here
+timestamp=`date +%s`.delete("\n")
+difficulty="000001"
+counter=rand(1000000000)
+base = "tree #{tree}
+parent #{parent}
+author CTF user <me@example.com> #{timestamp} +0000
+committer CTF user <me@example.com> #{timestamp} +0000
+
+Give me a Gitcoin
+
+" # moving this out of the loop makes the code run much faster, because this part never changes
+require 'digest/sha1'
+while true do
+	counter+=1
+	content=base+counter.to_s+"\n"
+	store = "commit #{content.length}\0" + content # this part is important
+	sha1 = Digest::SHA1.hexdigest(store)
+	if (sha1<difficulty) 
+		print sha1+"\n";
+		break
+	else
+		if (counter%100000==0)
+			print counter.to_s+"\n";
+			STDOUT.flush()
+		end
+	end
+end
+File.open("t.txt", 'w') {|f| f.write(content) } #put the commit body in file t.txt
+sha2=`git hash-object -t commit t.txt`.delete("\n") # make sure that git computes the same hash
+if (sha1==sha2) 
+#IO.popen("git hash-object -t commit -w t.txt") { |io| while (line = io.gets) do puts line end }
+#IO.popen("git reset --hard '#{sha1}' > /dev/null") { |io| while (line = io.gets) do puts line end }
+system("git hash-object -t commit -w t.txt >> t.log") # and commit the changes
+system("git reset --hard '#{sha1}' && git push origin master >> t.log")
+else
+	print "Invalid!\n"
+end

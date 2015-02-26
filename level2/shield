@@ -1,0 +1,165 @@
+#!/usr/bin/env node
+
+"use strict";
+
+var http = require('http');
+var httpProxy = require('./network_simulation/lib/proxy');
+var checkServer = require('./network_simulation/lib/check_server');
+var nopt = require('nopt');
+var url = require('url');
+
+var RequestData = function (request, response, buffer) {
+  this.request = request;
+  this.response = response;
+  this.buffer = buffer;
+};
+
+function ipFromRequest(reqData) {
+  return reqData.request.headers['x-forwarded-for'];
+}
+
+function rejectRequest(reqData) {
+  reqData.response.writeHead(400);
+  reqData.response.end();
+}
+
+var Queue = function (proxies, parameters) {
+  this.proxies = proxies;
+  this.parameters = parameters;
+};
+
+var ips={}
+var total_reqs=0
+var unique_reqs=0;
+var active_requests=0;
+var nonces={}
+var currentProxy=0;
+
+function currently_blacklisted(ip) {
+  total_reqs++;
+  if (ip in ips) {
+    ips[ip]++;
+  } else {
+    unique_reqs++;
+    ips[ip]=1;
+  }
+  if (ips[ip] < total_reqs/unique_reqs/5)
+    return false;
+
+  return true;
+}
+
+function already_registered(nonce) {
+  if (nonce in nonces) {
+    return true;
+  } else {
+    nonces[nonce]=1;
+  }
+  return false;
+}
+
+//checkServers.prototype.getStats = function(reqData) { };
+
+Queue.prototype.takeRequest = function (reqData) {
+  
+  // Reject traffic as necessary:
+  if (total_reqs <= 20 ) {
+    var parsed = url.parse(reqData.request.url, true),
+      nonce = parsed.query.nonce,
+      contents,
+      hmac; 
+   //console.log(this.proxies);
+   //console.log(nonce);
+   //console.log(nonce.length != 128);
+  }
+  //if (already_registered(nonce)) {
+  //  return rejectRequest(reqData);
+  //}
+
+  if (currently_blacklisted(ipFromRequest(reqData))) {
+    if (active_requests > this.proxies.length)
+      return rejectRequest(reqData);
+  }
+  // Otherwise proxy it through:
+  active_requests++;
+  this.proxies[currentProxy].proxyRequest(reqData.request, reqData.response, reqData.buffer);
+  currentProxy = (currentProxy + 1) % this.proxies.length;
+};
+Queue.prototype.requestFinished = function () {
+  active_requests--;
+  return;
+};
+
+function checkBackends(targets, path, response) {
+  var toCheck = targets.map(function (target) {
+    var output = {};
+    output['host'] = target['host'];
+    output['port'] = target['port'];
+    output['path'] = path;
+    return output;
+  });
+  var success = function () {
+    response.writeHead(200, {"Content-Type": "application/json"});
+    response.end()
+  };
+  var error = function () {
+    response.writeHead(500, {"Content-Type": "application/json"});
+    response.end()
+  };
+  checkServer.checkServers(toCheck, success, error);
+}
+
+function main() {
+  var opts = {
+    "out-ports": String,
+    "in-port": String,
+  };
+  var parsed = nopt(opts),
+      inPort = parsed['in-port'] || '3000',
+      outPorts = parsed['out-ports'] ? parsed['out-ports'].split(",") : ['3001'],
+      targets = [],
+      target,
+      proxies = [],
+      proxy,
+      i;
+
+  for (i = 0; i < outPorts.length; i++) {
+    target = {'host': 'localhost', 'port': outPorts[i]};
+    targets.push(target);
+    proxy = new httpProxy.HttpProxy({'target': target});
+    proxy.identifier = i;
+    proxies.push(proxy);
+  }
+  console.log(proxies.length);
+  var queue = new Queue(proxies, {});
+  for (i = 0; i < proxies.length; i++) {
+    proxy = proxies[i];
+    proxy.on("end", queue.requestFinished);
+  }
+
+  var server = http.createServer(function (req, res) {
+    if (req.method === "HEAD") {
+      // HEAD requests are used to monitor the status of the simulation
+      //var reqData = new ReqData
+      //console.log(req); 
+      //var reqData = new RequestData(req, res, null);
+      //queue.takeRequest(reqData);
+      //proxies[0].proxyRequest(reqData.request, reqData.response, reqData.buffer);
+      checkBackends(targets, url.parse(req.url)['pathname'], res);
+    } else {
+      var buffer = httpProxy.buffer(req);
+      var reqData = new RequestData(req, res, buffer);
+      queue.takeRequest(reqData);
+    }
+  });
+
+  server.on('close', function () {
+    for (i = 0; i < proxies.length; i++) {
+      proxies[i].close();
+    }
+  });
+  console.log("The shield is up and listening.");
+  server.listen(inPort);
+}
+
+main();

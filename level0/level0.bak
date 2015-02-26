@@ -1,0 +1,34 @@
+#!/usr/bin/env ruby
+#
+# Our test cases will always use the same dictionary file (with SHA1
+# 6b898d7c48630be05b72b3ae07c5be6617f90d8e). Running `test/harness`
+# will automatically download this dictionary for you if you don't
+# have it already.
+
+path = ARGV.length > 0 ? ARGV[0] : '/usr/share/dict/words'
+=begin
+entries = File.read(path).split("\n")
+lastDir = ""
+entries.each { |word|
+  curDir = "./duh/#{word[0].ord}/#{word[1].ord if !word[1].nil?}"
+  if !File.exists?("#{curDir}/#{word}")
+    firstTwo = "#{word.downcase[0]}#{word.downcase[1] }"
+    if lastDir != firstTwo
+      puts firstTwo
+      lastDir = firstTwo
+    end
+    `mkdir -p #{curDir}`
+    `touch #{curDir}/#{word}`
+  end
+}
+=end
+contents = $stdin.read
+output = contents.gsub!(/[^ \n]+/) do |word|
+  file = "./duh/#{word[0].downcase.ord}/#{word[1].downcase.ord if !word[1].nil?}/#{word.downcase}"
+  if File.exists?(file) #entries.include?(word)
+    "#{word}"
+  else
+    "<#{word}>"
+  end
+end
+print output
